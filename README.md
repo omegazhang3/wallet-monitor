@@ -1,6 +1,8 @@
-# Web3 Wallet Balance Monitor
+# Web3 Multi-Chain Wallet Balance Monitor
 
-Multi-chain EVM wallet balance monitor. Tracks balance changes across 40+ networks.
+Multi-chain wallet balance monitor — tracks balance changes across 48+ networks.
+
+Supports: **EVM** (41 chains), **Solana**, **Sui**, **Cosmos ecosystem** (ATOM, OSMO, TIA, INJ, DYDX).
 
 ## How It Works
 
@@ -24,20 +26,42 @@ node monitor.js --input addresses.txt
 node monitor.js --input addresses.txt --interval 60
 
 # Only specific chains
-node monitor.js --input addresses.txt --chains eth,bsc,arbitrum
+node monitor.js --input addresses.txt --chains eth,sol,atom
 
 # Telegram notification on changes
 node monitor.js --input addresses.txt --interval 60 --notify
 ```
 
+## Supported Chains
+
+| Type | Chains | Count |
+|------|--------|-------|
+| EVM | Ethereum, Arbitrum, Base, Optimism, BSC, Polygon, Avalanche, ... | 41 |
+| Solana | Solana | 1 |
+| Sui | Sui | 1 |
+| Cosmos | Cosmos Hub, Osmosis, Celestia, Injective, dYdX | 5 |
+
+Use `--chains` to filter: `eth`, `arb`, `bsc`, `sol`, `sui`, `atom`, `osmo`, `tia`, `inj`, `dydx`, etc.
+
 ## Address File Format
 
-One address per line. Supports comments and CSV:
+One address per line. Address type is auto-detected:
 
 ```
-# My wallets
-0x1234...abcd
-0x5678...ef01,0xdead...beef   # address, private_key
+# EVM (0x + 40 hex chars)
+0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+
+# Solana (base58, 32-44 chars)
+7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU
+
+# Sui (0x + up to 64 hex chars)
+0x0000000000000000000000000000000000000000000000000000000000000002
+
+# Cosmos ecosystem (bech32)
+cosmos1hsk6jryyqjfhp5dhc55tc9jtckygx0eph6dd02
+osmo1abc...
+celestia1abc...
+inj1abc...
 ```
 
 ## Options
@@ -60,4 +84,4 @@ One address per line. Supports comments and CSV:
 
 ## Telegram Notifications
 
-Set `TG_BOT_TOKEN` and `TG_CHAT_ID` in `/opt/data/.env` (shared with other tools).
+Set `TG_BOT_TOKEN` and `TG_CHAT_ID` in `/opt/data/.env`.

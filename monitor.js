@@ -37,6 +37,7 @@ const CHANGELOG = path.join(__dirname, 'balance-changes.jsonl');
 // ─── Config ───
 const config = {
   inputFile: null,
+  walletsFile: null,
   chains: null,
   includeTestnets: false,
   concurrency: 5,
@@ -53,6 +54,8 @@ function parseArgs() {
     switch (args[i]) {
       case '-i': case '--input':
         config.inputFile = args[++i]; break;
+      case '-w': case '--wallets':
+        config.walletsFile = args[++i]; break;
       case '-c': case '--chains':
         config.chains = args[++i].split(',').map(s => s.trim().toLowerCase()); break;
       case '--testnets':
@@ -71,11 +74,7 @@ function parseArgs() {
         printHelp(); process.exit(0);
     }
   }
-  if (!config.inputFile) {
-    log(`${C.red}Error: --input FILE required (address list)${C.reset}`);
-    log(`  Run with --help for usage`);
-    process.exit(1);
-  }
+  // --input is no longer required; wallets.env is auto-detected
 }
 
 function printHelp() {
@@ -87,6 +86,7 @@ ${C.cyan}Usage:${C.reset}
 
 ${C.cyan}Options:${C.reset}
   -i, --input FILE      Address file (required, one per line)
+  -w, --wallets FILE    Wallet config file with per-address chains (default: wallets.env)
   -c, --chains LIST     Comma-separated chains (default: all from config.env)
   --interval N          Re-scan every N seconds (default: 0 = one-shot)
   --notify              Send Telegram notification on balance changes
@@ -102,17 +102,16 @@ ${C.cyan}Supported chains:${C.reset}
   Sui:       sui
   Cosmos:    atom, osmo (Osmosis), tia (Celestia), inj (Injective), dydx
 
-${C.cyan}Address file format:${C.reset}
-  0x1234...abcd                     # EVM address (40 hex chars)
-  0x1234...abcdef0123456789         # Sui address (64 hex chars)
-  7xKX...solanaAddress              # Solana address (base58)
-  cosmos1abc...xyz                  # Cosmos bech32 address
-  osmo1abc...xyz                    # Osmosis address
+${C.cyan}Wallet config (wallets.env):${C.reset}
+  ADDRESS = chain1, chain2       # monitor specific chains
+  ADDRESS                        # monitor all chains of this type
 
-  # Mixed example:
-  0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
-  7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU
-  cosmos1abc...
+  0x1234...abcd = eth, arb, base # EVM on specific chains
+  7xKX...abc = sol               # Solana only
+  cosmos1abc... = atom, osmo     # Cosmos + Osmosis
+
+  Or use --input for simple address list (one per line, all chains):
+  -i, --input FILE
 `);
 }
 
@@ -156,40 +155,114 @@ function chainsForAddress(address, allChains) {
   return allChains.filter(c => c.type === type);
 }
 
-// ─── Load addresses from file ───
+// ─── Chain name resolver ───
+function resolveChainNames(names, allChains) {
+  // names: ['eth', 'arb', 'base'] -> matched chain objects
+  return names.map(name => {
+    const lower = name.trim().toLowerCase();
+    const found = allChains.find(c => {
+      const cName = c.name.toLowerCase();
+      const aliases = (c.aliases || []).map(a => a.toLowerCase());
+      return cName.includes(lower) || cName === lower || aliases.includes(lower);
+    });
+    return found || null;
+  }).filter(Boolean);
+}
+
+// ─── Load wallets from wallets.env format ───
+// Format: ADDRESS = chain1, chain2, ...
+//         ADDRESS                     (no chains = all of that type)
+function loadWalletsFromEnv(filePath, allChains) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const wallets = [];
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    // Split on first '=' only
+    const eqIdx = line.indexOf('=');
+    let addressPart, chainsPart;
+    if (eqIdx >= 0) {
+      addressPart = line.slice(0, eqIdx).trim();
+      chainsPart = line.slice(eqIdx + 1).trim();
+    } else {
+      addressPart = line.split(/[,\\t]/)[0].trim();
+      chainsPart = null;
+    }
+
+    // Extract address from addressPart (may have trailing comment or comma)
+    const addr = addressPart.split(/[\s#,]/)[0].trim();
+    if (!addr) continue;
+
+    const type = detectAddressType(addr);
+    if (!type) continue;
+
+    let chainFilter = null; // null = all chains of this type
+    if (chainsPart) {
+      const names = chainsPart.split(',').map(s => s.trim()).filter(Boolean);
+      if (names.length > 0) {
+        chainFilter = resolveChainNames(names, allChains);
+      }
+    }
+
+    wallets.push({ address: addr, privateKey: null, type, chainFilter });
+  }
+  return wallets;
+}
+
+// ─── Load addresses from simple list (one per line) ───
 function loadAddresses(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   const wallets = [];
   for (const raw of content.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
-    const parts = line.split(/[,\t]/).map(s => s.trim());
+    const parts = line.split(/[,\\t]/).map(s => s.trim());
     let address = null, privateKey = null;
 
     for (const part of parts) {
-      // Private key (EVM)
       if (/^0x[0-9a-fA-F]{64,66}$/.test(part)) {
         privateKey = part;
         try { address = new ethers.Wallet(part).address; } catch {}
       }
     }
 
-    // Find address: first valid address-like string
     if (!address) {
       for (const part of parts) {
-        if (detectAddressType(part)) {
-          address = part;
-          break;
-        }
+        if (detectAddressType(part)) { address = part; break; }
       }
     }
 
     if (address) {
-      const type = detectAddressType(address);
-      wallets.push({ address, privateKey, type });
+      wallets.push({ address, privateKey, type: detectAddressType(address), chainFilter: null });
     }
   }
   return wallets;
+}
+
+// ─── Unified wallet loader ───
+function loadAllWallets(allChains) {
+  if (config.walletsFile) {
+    return loadWalletsFromEnv(config.walletsFile, allChains);
+  }
+  if (config.inputFile) {
+    return loadAddresses(config.inputFile);
+  }
+  // Auto-detect: wallets.env takes priority
+  const envPath = path.join(__dirname, 'wallets.env');
+  if (fs.existsSync(envPath)) {
+    const content = fs.readFileSync(envPath, 'utf8').trim();
+    // Check if it has uncommented address lines
+    const hasAddresses = content.split(/\r?\n/).some(l => {
+      const t = l.trim();
+      return t && !t.startsWith('#');
+    });
+    if (hasAddresses) return loadWalletsFromEnv(envPath, allChains);
+  }
+  // Fallback to addresses.txt
+  const txtPath = path.join(__dirname, 'addresses.txt');
+  if (fs.existsSync(txtPath)) return loadAddresses(txtPath);
+  return [];
 }
 
 // ─── Load / Save state ───
@@ -365,12 +438,18 @@ async function scanAll(wallets, allChains) {
     chainsByType[chain.type].push(chain);
   }
 
-  // For each address, only check chains matching its type
-  // Collect all (address, chain) pairs to check
-  const tasks = []; // { walletIdx, chain }
+  // For each address, only check chains matching its type (and optional filter)
+  const tasks = [];
   for (let wi = 0; wi < wallets.length; wi++) {
     const w = wallets[wi];
-    const matchingChains = allChains.filter(c => c.type === w.type);
+    let matchingChains;
+    if (w.chainFilter && w.chainFilter.length > 0) {
+      // Use per-wallet chain filter
+      matchingChains = w.chainFilter;
+    } else {
+      // All chains of this address type
+      matchingChains = allChains.filter(c => c.type === w.type);
+    }
     for (const chain of matchingChains) {
       tasks.push({ walletIdx: wi, chain });
     }
@@ -572,17 +651,20 @@ async function main() {
   const appConfig = loadConfig();
   if (!config.chains && appConfig.chains) config.chains = appConfig.chains;
   const allChains = getActiveChains();
-  const wallets = loadAddresses(config.inputFile);
+  const wallets = loadAllWallets(allChains);
 
   if (wallets.length === 0) {
-    log(`${C.red}No valid addresses found in ${config.inputFile}${C.reset}`);
+    log(`${C.red}No wallets configured.${C.reset}`);
+    log(`  Edit wallets.env or use --input / --wallets`);
     process.exit(1);
   }
 
   // For each address, find matching chains
   let totalChecks = 0;
   for (const w of wallets) {
-    const matching = allChains.filter(c => c.type === w.type);
+    const matching = (w.chainFilter && w.chainFilter.length > 0)
+      ? w.chainFilter
+      : allChains.filter(c => c.type === w.type);
     totalChecks += matching.length;
   }
 

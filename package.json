@@ -1,0 +1,16 @@
+{
+  "name": "wallet-monitor",
+  "version": "1.0.0",
+  "description": "Web3 multi-chain wallet balance monitor — tracks changes across 40+ EVM chains",
+  "main": "monitor.js",
+  "scripts": {
+    "start": "node monitor.js --input addresses.txt --interval 60",
+    "scan": "node monitor.js --input addresses.txt",
+    "monitor": "node monitor.js --input addresses.txt --interval 60 --notify"
+  },
+  "keywords": ["web3", "evm", "wallet", "balance", "monitor"],
+  "license": "ISC",
+  "dependencies": {
+    "ethers": "^6.16.0"
+  }
+}

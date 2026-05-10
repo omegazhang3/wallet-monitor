@@ -16,20 +16,57 @@ Supports: **EVM** (41 chains), **Solana**, **Sui**, **Cosmos ecosystem** (ATOM, 
 npm install
 ```
 
+## Quick Start
+
+```bash
+# 1. Edit wallets.env with your addresses
+# 2. Run
+node monitor.js
+
+# Or with options
+node monitor.js --interval 60 --notify
+```
+
+## Wallet Configuration (wallets.env)
+
+Each address on one line, optionally specify which chains to monitor:
+
+```bash
+# Monitor specific chains only
+0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 = eth, arbitrum, base
+
+# Monitor all EVM chains (omit chain list)
+0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8
+
+# Non-EVM chains
+7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU = sol
+cosmos1hsk6jryyqjfhp5dhc55tc9jtckygx0eph6dd02 = atom, osmo
+```
+
+Chain aliases: `eth`, `arb`/`arbitrum`, `base`, `op`/`optimism`, `bsc`, `polygon`/`matic`, `avax`, `sol`, `sui`, `atom`, `osmo`, `tia`, `inj`, `dydx`, etc.
+
+If `wallets.env` has no uncommented addresses, falls back to `addresses.txt` (one address per line).
+
 ## Usage
 
 ```bash
-# One-shot scan
+# Auto-detect wallets.env
+node monitor.js
+
+# Use wallets.env with continuous monitoring
+node monitor.js --interval 60
+
+# Use simple address list instead
 node monitor.js --input addresses.txt
 
-# Continuous monitoring (every 60 seconds)
-node monitor.js --input addresses.txt --interval 60
+# Use a custom wallets file
+node monitor.js --wallets my-wallets.env
 
-# Only specific chains
-node monitor.js --input addresses.txt --chains eth,sol,atom
+# Only specific chains (global filter, overrides per-address config)
+node monitor.js --chains eth,sol,atom
 
 # Telegram notification on changes
-node monitor.js --input addresses.txt --interval 60 --notify
+node monitor.js --interval 60 --notify
 ```
 
 ## Supported Chains
@@ -41,41 +78,18 @@ node monitor.js --input addresses.txt --interval 60 --notify
 | Sui | Sui | 1 |
 | Cosmos | Cosmos Hub, Osmosis, Celestia, Injective, dYdX | 5 |
 
-Use `--chains` to filter: `eth`, `arb`, `bsc`, `sol`, `sui`, `atom`, `osmo`, `tia`, `inj`, `dydx`, etc.
-
-## Address File Format
-
-One address per line. Address type is auto-detected:
-
-```
-# EVM (0x + 40 hex chars)
-0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
-
-# Solana (base58, 32-44 chars)
-7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU
-
-# Sui (0x + up to 64 hex chars)
-0x0000000000000000000000000000000000000000000000000000000000000002
-
-# Cosmos ecosystem (bech32)
-cosmos1hsk6jryyqjfhp5dhc55tc9jtckygx0eph6dd02
-osmo1abc...
-celestia1abc...
-inj1abc...
-```
-
 ## Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-i, --input FILE` | required | Address file |
-| `-c, --chains LIST` | all | Comma-separated chain filter |
+| `-w, --wallets FILE` | wallets.env | Wallet config with per-address chains |
+| `-i, --input FILE` | addresses.txt | Simple address list (all chains) |
+| `-c, --chains LIST` | all | Global chain filter |
 | `--interval N` | 0 (one-shot) | Re-scan interval in seconds |
 | `--notify` | off | Send Telegram on changes |
 | `--testnets` | off | Include testnet chains |
 | `--concurrency N` | 5 | Parallel chain RPCs |
 | `--timeout MS` | 10000 | RPC timeout |
-| `--state FILE` | balance-state.json | Custom state file path |
 
 ## Output Files
 
